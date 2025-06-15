@@ -20,6 +20,7 @@ conda activate ani_env
 ## 🚀 Uso
 
 ```bash
+./recuperador_secuencias.sh
 ./ani_pipeline.sh
 ```
 
