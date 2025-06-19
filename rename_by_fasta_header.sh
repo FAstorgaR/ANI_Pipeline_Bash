@@ -1,44 +1,56 @@
 #!/bin/bash
 
 INPUT_DIR="genomes_download"
+OUTPUT_BASE_DIR="organismos_ordenados"
 
-echo "📂 Buscando subcarpetas en: $INPUT_DIR"
+mkdir -p "$OUTPUT_BASE_DIR"
 
-find "$INPUT_DIR" -mindepth 1 -maxdepth 1 -type d | while read folder; do
-    echo "📁 Procesando carpeta: $folder"
+echo "📂 Buscando archivos .fna.gz en: $INPUT_DIR"
 
-    # Buscar archivo .fna.gz
-    FILE=$(find "$folder" -type f -name "*.fna.gz" | head -n 1)
+find "$INPUT_DIR" -type f -name "*.fna.gz" | while read file; do
+    echo "🔍 Procesando archivo: $file"
 
-    if [ -z "$FILE" ]; then
-        echo "⚠️ No se encontró archivo .fna.gz en $folder"
-        continue
-    fi
+    # Extraer la primera línea del archivo (encabezado FASTA)
+    HEADER=$(zcat "$file" | head -n 1)
 
-    # Leer encabezado
-    HEADER=$(zcat "$FILE" | head -n 1)
+    # Extraer palabras 2 y 3 como nombre científico
     SPECIES=$(echo "$HEADER" | awk '{print $2 "_" $3}' | sed 's/[^a-zA-Z_]/_/g')
 
     if [ -z "$SPECIES" ]; then
+        echo "⚠️ No se pudo extraer nombre de especie. Usando 'Desconocido'"
         SPECIES="Desconocido"
     fi
 
-    GCF=$(basename "$FILE" | cut -d'_' -f1-2)
+    # Extraer el ID tipo GCF_XXXXXX
+    GCF=$(basename "$file" | cut -d'_' -f1-2)
+
+    # Nuevo nombre de archivo
     NEW_NAME="${SPECIES}_${GCF}.fna.gz"
-    NEW_FILE_PATH="$folder/$NEW_NAME"
+    NEW_PATH="$(dirname "$file")/$NEW_NAME"
 
     echo "➡️ Renombrando archivo a: $NEW_NAME"
-    mv "$FILE" "$NEW_FILE_PATH"
+    mv "$file" "$NEW_PATH"
 
-    # Renombrar carpeta
-    PARENT_DIR=$(dirname "$folder")
-    NEW_FOLDER_NAME="${SPECIES}_${GCF}"
-    NEW_FOLDER_PATH="$PARENT_DIR/$NEW_FOLDER_NAME"
-
-    if [ "$folder" != "$NEW_FOLDER_PATH" ]; then
-        echo "📁 Renombrando carpeta: $(basename "$folder") → $NEW_FOLDER_NAME"
-        mv "$folder" "$NEW_FOLDER_PATH"
-    fi
+    # Crear carpeta de salida para la especie
+    SPECIES_DIR="$OUTPUT_BASE_DIR/$SPECIES"
+    mkdir -p "$SPECIES_DIR"
 done
 
-echo "✅ Proceso completado. Si usas un explorador gráfico, recarga o reinícialo si no ves los cambios."
+echo ""
+echo "📂 Moviendo todos los archivos FASTA (.fna y .fna.gz) renombrados a sus carpetas..."
+
+# Mover todos los archivos .fna y .fna.gz al folder correspondiente basado en su nombre
+find "$INPUT_DIR" \( -name "*.fna" -o -name "*.fna.gz" \) | while read fasta_file; do
+    # Extraer nombre de especie del nombre del archivo (antes del primer guion bajo)
+    BASENAME=$(basename "$fasta_file")
+    # Extraemos desde el inicio hasta el segundo guion bajo, que es especie + GCF
+    SPECIES_PART=$(echo "$BASENAME" | cut -d'_' -f1,2)
+
+    DEST_DIR="$OUTPUT_BASE_DIR/$SPECIES_PART"
+    mkdir -p "$DEST_DIR"
+
+    echo "➡️ Moviendo $BASENAME a $DEST_DIR"
+    mv "$fasta_file" "$DEST_DIR/"
+done
+
+echo "✅ Proceso completado."
