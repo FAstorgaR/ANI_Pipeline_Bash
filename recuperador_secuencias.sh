@@ -1,56 +1,67 @@
 #!/bin/bash
 
-INPUT_DIR="genomes_download"
-OUTPUT_BASE_DIR="organismos_ordenados"
+# === MODO DE OPERACIÓN ===
+echo "¿Deseas descargar un (1) género completo o una (2) especie específica por taxID?"
+read -p "Elige 1 (género) o 2 (especie): " MODO
 
-mkdir -p "$OUTPUT_BASE_DIR"
-
-echo "📂 Buscando archivos .fna.gz en: $INPUT_DIR"
-
-find "$INPUT_DIR" -type f -name "*.fna.gz" | while read file; do
-    echo "🔍 Procesando archivo: $file"
-
-    # Extraer la primera línea del archivo (encabezado FASTA)
-    HEADER=$(zcat "$file" | head -n 1)
-
-    # Extraer palabras 2 y 3 como nombre científico
-    SPECIES=$(echo "$HEADER" | awk '{print $2 "_" $3}' | sed 's/[^a-zA-Z_]/_/g')
-
-    if [ -z "$SPECIES" ]; then
-        echo "⚠️ No se pudo extraer nombre de especie. Usando 'Desconocido'"
-        SPECIES="Desconocido"
+if [[ "$MODO" == "1" ]]; then
+    read -p "Ingresa el nombre del género (ej: Bacillus): " GENUS
+    if [ -z "$GENUS" ]; then
+        echo "[-] No se ingresó un nombre de género válido. Abortando."
+        exit 1
     fi
+    MODE_DESC="género $GENUS"
+elif [[ "$MODO" == "2" ]]; then
+    read -p "Ingresa el taxID de la especie: " TAXID
+    if [ -z "$TAXID" ]; then
+        echo "[-] No se ingresó un taxID válido. Abortando."
+        exit 1
+    fi
+    # Obtener nombre científico
+    SCIENTIFIC_NAME=$(curl -s "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi?db=taxonomy&id=$TAXID" | grep -oPm1 "(?<=<Item Name=\"ScientificName\" Type=\"String\">)[^<]+")
+    if [ -z "$SCIENTIFIC_NAME" ]; then
+        echo "[-] No se encontró nombre científico para el taxID $TAXID"
+        exit 1
+    fi
+    echo "[+] Organismo: $SCIENTIFIC_NAME"
+    MODE_DESC="especie $SCIENTIFIC_NAME"
+else
+    echo "[-] Opción no válida. Abortando."
+    exit 1
+fi
 
-    # Extraer el ID tipo GCF_XXXXXX
-    GCF=$(basename "$file" | cut -d'_' -f1-2)
+# === CONFIGURACIÓN GENERAL ===
+FORMAT="fasta"
+ASSEMBLY_LEVEL="complete"
+OUTPUT_DIR="genomes_download"
 
-    # Nuevo nombre de archivo
-    NEW_NAME="${SPECIES}_${GCF}.fna.gz"
-    NEW_PATH="$(dirname "$file")/$NEW_NAME"
+mkdir -p "$OUTPUT_DIR"
 
-    echo "➡️ Renombrando archivo a: $NEW_NAME"
-    mv "$file" "$NEW_PATH"
+# === DESCARGA DE GENOMAS ===
+echo "[+] Descargando genomas ($ASSEMBLY_LEVEL, $FORMAT) para $MODE_DESC..."
 
-    # Crear carpeta de salida para la especie
-    SPECIES_DIR="$OUTPUT_BASE_DIR/$SPECIES"
-    mkdir -p "$SPECIES_DIR"
-done
+if [[ "$MODO" == "1" ]]; then
+    ncbi-genome-download bacteria \
+        --section refseq \
+        --assembly-level "$ASSEMBLY_LEVEL" \
+        --formats "$FORMAT" \
+        --output-folder "$OUTPUT_DIR" \
+        --genera "$GENUS"
+else
+    ncbi-genome-download bacteria \
+        --section refseq \
+        --assembly-level "$ASSEMBLY_LEVEL" \
+        --formats "$FORMAT" \
+        --output-folder "$OUTPUT_DIR" \
+        --species-taxids "$TAXID"
+fi
 
+# === RESUMEN ===
 echo ""
-echo "📂 Moviendo todos los archivos FASTA (.fna y .fna.gz) renombrados a sus carpetas..."
-
-# Mover todos los archivos .fna y .fna.gz al folder correspondiente basado en su nombre
-find "$INPUT_DIR" \( -name "*.fna" -o -name "*.fna.gz" \) | while read fasta_file; do
-    # Extraer nombre de especie del nombre del archivo (antes del primer guion bajo)
-    BASENAME=$(basename "$fasta_file")
-    # Extraemos desde el inicio hasta el segundo guion bajo, que es especie + GCF
-    SPECIES_PART=$(echo "$BASENAME" | cut -d'_' -f1,2)
-
-    DEST_DIR="$OUTPUT_BASE_DIR/$SPECIES_PART"
-    mkdir -p "$DEST_DIR"
-
-    echo "➡️ Moviendo $BASENAME a $DEST_DIR"
-    mv "$fasta_file" "$DEST_DIR/"
-done
-
-echo "✅ Proceso completado."
+FILES_FOUND=$(find "$OUTPUT_DIR" -type f -name "*.fna.gz" | wc -l)
+if [ "$FILES_FOUND" -eq 0 ]; then
+    echo "[-] No se encontraron genomas descargados."
+else
+    echo "[✓] Se descargaron $FILES_FOUND archivos:"
+    find "$OUTPUT_DIR" -type f -name "*.fna.gz" | sed 's/^/ - /'
+fi
