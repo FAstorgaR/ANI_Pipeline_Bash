@@ -1,44 +1,43 @@
 #!/bin/bash
 
 INPUT_DIR="genomes_download"
-declare -A FOLDER_MAP  # Almacena pares: carpeta original → nuevo nombre
 
-echo "📂 Buscando archivos .fna.gz en: $INPUT_DIR"
+echo "📂 Buscando subcarpetas en: $INPUT_DIR"
 
-# === PRIMER PASO: renombrar archivos ===
-find "$INPUT_DIR" -type f -name "*.fna.gz" | while read file; do
-    echo "🔍 Procesando archivo: $file"
+find "$INPUT_DIR" -mindepth 1 -maxdepth 1 -type d | while read folder; do
+    echo "📁 Procesando carpeta: $folder"
 
-    HEADER=$(zcat "$file" | head -n 1)
+    # Buscar archivo .fna.gz
+    FILE=$(find "$folder" -type f -name "*.fna.gz" | head -n 1)
+
+    if [ -z "$FILE" ]; then
+        echo "⚠️ No se encontró archivo .fna.gz en $folder"
+        continue
+    fi
+
+    # Leer encabezado
+    HEADER=$(zcat "$FILE" | head -n 1)
     SPECIES=$(echo "$HEADER" | awk '{print $2 "_" $3}' | sed 's/[^a-zA-Z_]/_/g')
 
     if [ -z "$SPECIES" ]; then
         SPECIES="Desconocido"
     fi
 
-    GCF=$(basename "$file" | cut -d'_' -f1-2)
+    GCF=$(basename "$FILE" | cut -d'_' -f1-2)
     NEW_NAME="${SPECIES}_${GCF}.fna.gz"
-    NEW_PATH="$(dirname "$file")/$NEW_NAME"
+    NEW_FILE_PATH="$folder/$NEW_NAME"
 
     echo "➡️ Renombrando archivo a: $NEW_NAME"
-    mv "$file" "$NEW_PATH"
+    mv "$FILE" "$NEW_FILE_PATH"
 
-    # Guardar carpeta para renombrarla después
-    ORIG_FOLDER=$(dirname "$file")
-    FOLDER_MAP["$ORIG_FOLDER"]="${SPECIES}_${GCF}"
-done
+    # Renombrar carpeta
+    PARENT_DIR=$(dirname "$folder")
+    NEW_FOLDER_NAME="${SPECIES}_${GCF}"
+    NEW_FOLDER_PATH="$PARENT_DIR/$NEW_FOLDER_NAME"
 
-# === SEGUNDO PASO: renombrar carpetas ===
-echo ""
-echo "📁 Renombrando carpetas..."
-for OLD in "${!FOLDER_MAP[@]}"; do
-    NEW="${FOLDER_MAP[$OLD]}"
-    PARENT=$(dirname "$OLD")
-    TARGET="$PARENT/$NEW"
-
-    if [ "$OLD" != "$TARGET" ]; then
-        echo "📁 $OLD → $TARGET"
-        mv "$OLD" "$TARGET"
+    if [ "$folder" != "$NEW_FOLDER_PATH" ]; then
+        echo "📁 Renombrando carpeta: $(basename "$folder") → $NEW_FOLDER_NAME"
+        mv "$folder" "$NEW_FOLDER_PATH"
     fi
 done
 
